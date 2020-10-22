@@ -1,0 +1,81 @@
+// 3. ObserverRegistry：Observer注册表类
+public class ObserverRegistry {
+    private ConcurrentMap<Class<?>, CopyOnWriteArraySet<ObserverAction>> registry = new ConcurrentHashMap<>();
+    
+    /**
+     * 目的：将findAllObserverAction(Object ob)函数的结果（一个观察者的【事件消息类型 -> 观察者事件处理函数】映射表）注册进EventBus的注册表中
+     * @param ob：观察者类的对象
+     * @return void
+     */
+    public void register(Object ob) {
+        Map<Class<?>, Collection<ObserverAction>> observerActions = findAllObserverActions(ob);
+        for (Map.Entry<Class<?>, Collection<ObserverAction>> entry : observerActions.entrySet()) {
+            Class<?> eventType = entry.getKey();
+            Collection<ObserverAction> eventActions = entry.getValue();
+            CopyOnWriteArraySet<ObserverAction> registeredEventActions = registry.get(eventType);
+            if (registeredEventActions == null) {
+                registry.putIfAbset(eventType, new CopyOnWriteArraySet<>());
+                registeredEventActions = registry.get(eventType);
+            }
+            registeredEventActions.addAll(eventActions);
+        }
+    }
+    
+    /**
+     * 目的：
+     * @param event：事件消息类型的对象
+     * @return matchedObservers：EventBus注册表中与事件消息类型匹配的所有ObserverAction列表
+     */
+    public List<ObserverAction> getMatchedObserverActions(Object event) {
+        List<ObserverAction> matchedObservers = new ArrayList<>();
+        Class<?> postedEventType = event.getClass();
+        for (Map.Entry<Class<?>, CopyOnWriteArraySet<ObserverAction>> entry : registry.entrySet()) {
+            Class<?> eventType = entry.getKey();
+            Collection<ObserverAction> eventActions = entry.getValue();
+            if (postedEventType.isAssignableFrom(eventType)) {
+                matchedObservers.addAll(eventActions);
+            }
+        }
+        return matchedObservers;
+    }
+
+
+    /**
+     * 目的：整理并导出一个观察者的【事件消息类型 -> 观察者事件处理函数】映射表
+     * @param ob：观察者类的对象
+     * @return observerActions：Map<事件消息参数类型.class, List<该观察者对象+方法1, 该观察者对象+方法2.....>>
+     */
+    private Map<Class<?>, Collection<ObserverAction>> findAllObserverAction(Object ob) {
+        Map<Class<?>, Collection<ObserverAction>> observerActions = new HashMap<>();
+        Class<?> clazz = ob.getClass();
+        for (Method method : getAnnotatedMethods(clazz)) {
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            Class<?> eventType = parameterTypes[0];
+            if (!observerActions.containsKey(eventType)) {
+                observerActions.put(eventType, new ArrayList<>());
+            }
+            observerActions.get(eventType).add(new ObserverAction(ob, method));
+        }
+        return observerActions;
+    }
+    
+    /**
+     * 目的：导出一个观察者类对象下所有被@Subscribe注解修饰的方法
+     * @param clazz：观察者类的对象的字节码对象clazz = ob.getClass()
+ * @return annotatedMethods：List<Method>
+     */
+    private List<Method> getAnnotatedMethods(Class<?> clazz) {
+        List<Method> annotatedMethods = new ArrayList<>();
+        for (Method method : clazz.getDeclaredMethods()) {
+            if (method.isAnnotationPresent(Subscribe.class)) {
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                Proconditions.checkArgument(parameterTypes.length == 1,
+                                           "method %s has @Subscribe annotation but has %s parameters."
+                                            + "Subscriber methods must have exactly 1 parameter.", 
+                                           method, parameterTypes.length);
+                annotatedMethods.add(method);
+            }
+        }
+        return annotatedMethods;
+    }
+}
